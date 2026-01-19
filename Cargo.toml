@@ -1,0 +1,18 @@
+[package]
+name = "quirky_binder_console"
+version = "0.1.0"
+authors = ["Arnaud de Bossoreille <arnaud.debossoreille@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+capnp = "0.21"
+dioxus = { version = "0.7.1", features = ["router"] }
+futures = "0.3"
+quirky_binder_capnp = { git = "https://github.com/arnodb/quirky_binder.git" }
+regex = "1"
+smol = "2"
+teleop = "0.1"
+
+[features]
+default = ["desktop"]
+desktop = ["dioxus/desktop"]
