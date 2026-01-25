@@ -3,6 +3,8 @@ use std::process::Stdio;
 use std::sync::LazyLock;
 use std::{collections::BTreeMap, time::Duration};
 
+use ::quirky_binder_capnp::discover_processes;
+use ::quirky_binder_capnp::Process;
 use dioxus::document::eval;
 use dioxus::prelude::*;
 use futures::{AsyncReadExt, AsyncWriteExt};
@@ -78,28 +80,56 @@ fn App() -> Element {
 fn Home() -> Element {
     let nav = navigator();
 
-    let HomeState { mut pid } = use_context::<HomeState>();
+    let HomeState { pid: mut pid_state } = use_context::<HomeState>();
+
+    let mut processes = use_signal(|| discover_processes().unwrap());
+    if let Some(pid) = pid_state() {
+        if !processes().iter().any(|p| p.pid == pid) {
+            pid_state.set(None)
+        }
+    }
 
     rsx! {
         div {
-            class: "pid-selection",
-
-            input {
-                type: "text",
-                class: "input input-primary",
-                autofocus: true,
-                placeholder: "PID...",
-                value: pid(),
-                onchange: move |e| { pid.set(e.value().parse::<u32>().ok()); },
-            }
-            button {
-                class: "btn btn-primary",
-                onclick: move |_| {
-                    if let Some(pid) = pid() {
-                        nav.push(Route::Teleop{ pid });
+            class: "home",
+            div {
+                class: "pid-list",
+                if processes().is_empty() {
+                    div {
+                        "No processes found"
                     }
-                },
-                "Connect"
+                }
+                ul {
+                    class: "list",
+                    for &Process{ pid, ref description } in processes().iter() {
+                        li {
+                            key: "{pid}",
+                            class: "list-row process",
+                            div {
+                                class: "process-description",
+                                "{description}"
+                            }
+                            button {
+                                class: if pid_state() != Some(pid) { "btn" } else { "btn btn-active btn-accent" },
+                                onclick: move |_| {
+                                    pid_state.set(Some(pid));
+                                    nav.push(Route::Teleop{ pid });
+                                },
+                                "{pid}"
+                            }
+                        }
+                    }
+                }
+            }
+            div {
+                class: "pid-buttons",
+                button {
+                    class: "btn btn-secondary",
+                    onclick: move |_| {
+                        processes.set(discover_processes().unwrap());
+                    },
+                    "Refresh"
+                }
             }
         }
     }

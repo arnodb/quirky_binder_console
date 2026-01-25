@@ -1,8 +1,30 @@
-.pid-selection {
+.home {
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
     height: 100vh;
+    gap: 20px;
+    padding: 20px;
+}
+
+.pid-list {
+    overflow: auto;
+}
+
+.process {
+    display: flex;
+    align-items: center;
+}
+
+.process-description {
+    flex: 1;
+}
+
+.pid-buttons {
+    display: flex;
+    justify-content: center;
+    align-items: center;
     gap: 20px;
 }
 
