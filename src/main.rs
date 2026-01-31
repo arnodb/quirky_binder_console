@@ -284,6 +284,11 @@ pub async fn dot_to_svg(dot_source: &str) -> std::io::Result<String> {
     }
 }
 
+const GREY: &str = "#59636e";
+const GREEN: &str = "#1a7f37";
+const ORANGE: &str = "#dbab0a";
+const RED: &str = "#d1242f";
+
 async fn poll(
     pid: u32,
     theme: Signal<AppTheme>,
@@ -365,13 +370,13 @@ async fn poll(
             for (i, (attr, val)) in [(
                 "color",
                 match state {
-                    quirky_binder_capnp::node_state::Which::Waiting(()) => "#59636e",
+                    quirky_binder_capnp::node_state::Which::Waiting(()) => GREY,
                     quirky_binder_capnp::node_state::Which::Running(()) => match total_records {
-                        None => "#59636e",
-                        Some(_) => "#dbab0a",
+                        None => GREY,
+                        Some(_) => ORANGE,
                     },
-                    quirky_binder_capnp::node_state::Which::Success(()) => "#1a7f37",
-                    quirky_binder_capnp::node_state::Which::Error(_) => "#d1242f",
+                    quirky_binder_capnp::node_state::Which::Success(()) => GREEN,
+                    quirky_binder_capnp::node_state::Which::Error(_) => RED,
                 },
             )]
             .into_iter()
@@ -413,14 +418,30 @@ async fn poll(
                 .map(|s| capnp::Result::Ok(s.get_input_read()?.get(head_index as _)))
                 .transpose()?;
 
+            let diff_counter = tail_counter.and_then(|t| head_counter.map(|h| t as i32 - h as i32));
+
             for (i, (attr, val)) in tail_counter
                 .map(|n| ("taillabel", n.to_string()))
                 .into_iter()
-                .chain(
-                    head_counter
-                        .map(|n| ("headlabel", n.to_string()))
-                        .into_iter(),
-                )
+                .chain(head_counter.map(|n| {
+                    (
+                        "headlabel",
+                        if let Some(d) = diff_counter {
+                            format!("{} ({})", n, d)
+                        } else {
+                            format!("{}", n)
+                        },
+                    )
+                }))
+                .chain(diff_counter.map(|d| {
+                    if d < 10 {
+                        ("color", GREEN.to_owned())
+                    } else if d < 42 {
+                        ("color", ORANGE.to_owned())
+                    } else {
+                        ("color", RED.to_owned())
+                    }
+                }))
                 .enumerate()
             {
                 if i > 0 {
