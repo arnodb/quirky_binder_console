@@ -1,18 +1,15 @@
-use std::fmt::Write;
-use std::process::Stdio;
-use std::sync::LazyLock;
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, fmt::Write, process::Stdio, sync::LazyLock, time::Duration};
 
-use ::quirky_binder_capnp::discover_processes;
-use ::quirky_binder_capnp::Process;
-use dioxus::document::eval;
-use dioxus::prelude::*;
+use ::quirky_binder_capnp::{discover_processes, Process};
+use dioxus::{document::eval, prelude::*};
 use futures::{AsyncReadExt, AsyncWriteExt};
 use quirky_binder_capnp::quirky_binder_capnp;
 use regex::Regex;
-use smol::process::Command;
-use smol::Timer;
-use teleop::{attach::unix_socket::connect, operate::capnp::client_connection};
+use smol::{process::Command, Timer};
+use teleop::{
+    attach::unix_socket::connect,
+    operate::capnp::{client_connection, teleop_capnp::teleop::Client},
+};
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
@@ -184,10 +181,29 @@ pub fn Teleop(pid: u32) -> Element {
     };
 
     use_future(move || async move {
-        if let Err(err) = poll(pid, theme, rpc_state, svg).await {
+        let stream = connect(pid).await?;
+
+        rpc_state.set(RpcState::Connected);
+
+        let (input, output) = stream.split();
+        let (rpc_system, teleop) = client_connection(input, output).await;
+        let rpc_disconnector = rpc_system.get_disconnector();
+
+        spawn(async move {
+            if let Err(err) = rpc_system.await {
+                eprintln!("Connection interrupted {err}");
+            }
+        });
+
+        if let Err(err) = poll(theme, teleop, svg).await {
             eprintln!("Error in poller: {err}");
-            rpc_state.set(RpcState::Disconnected);
         }
+
+        let _ = rpc_disconnector.await;
+
+        rpc_state.set(RpcState::Disconnected);
+
+        Ok::<_, Box<dyn std::error::Error>>(())
     });
 
     let nav = navigator();
@@ -290,24 +306,10 @@ const ORANGE: &str = "#dbab0a";
 const RED: &str = "#d1242f";
 
 async fn poll(
-    pid: u32,
     theme: Signal<AppTheme>,
-    mut rpc_state: Signal<RpcState>,
+    teleop: Client,
     mut svg: Signal<Option<String>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let stream = connect(pid).await?;
-
-    rpc_state.set(RpcState::Connected);
-
-    let (input, output) = stream.split();
-    let (rpc_system, teleop) = client_connection(input, output).await;
-
-    spawn(async move {
-        if let Err(err) = rpc_system.await {
-            eprintln!("Connection interrupted {err}");
-        }
-    });
-
     let mut req = teleop.service_request();
     req.get().set_name("state");
     let state = req.send().promise.await?;
@@ -317,7 +319,7 @@ async fn poll(
     let graph = state.graph_request().send().promise.await?;
     let graph = graph.get()?.get_graph()?;
 
-    let mut update_graph = async || -> Result<(), Box<dyn std::error::Error>> {
+    let mut update_graph = async || -> Result<bool, Box<dyn std::error::Error>> {
         let statuses = state.node_statuses_request().send().promise.await?;
         let statuses = statuses.get()?.get_statuses()?;
         let statuses = statuses
@@ -341,6 +343,8 @@ async fn poll(
                 writeln!(&mut dot, "    edge [fontcolor=\"white\", color=\"white\"];")?;
             }
         }
+
+        let mut finished = true;
 
         let nodes = graph.get_nodes()?;
 
@@ -370,11 +374,17 @@ async fn poll(
             for (i, (attr, val)) in [(
                 "color",
                 match state {
-                    quirky_binder_capnp::node_state::Which::Waiting(()) => GREY,
-                    quirky_binder_capnp::node_state::Which::Running(()) => match total_records {
-                        None => GREY,
-                        Some(_) => ORANGE,
-                    },
+                    quirky_binder_capnp::node_state::Which::Waiting(()) => {
+                        finished = false;
+                        GREY
+                    }
+                    quirky_binder_capnp::node_state::Which::Running(()) => {
+                        finished = false;
+                        match total_records {
+                            None => GREY,
+                            Some(_) => ORANGE,
+                        }
+                    }
                     quirky_binder_capnp::node_state::Which::Success(()) => GREEN,
                     quirky_binder_capnp::node_state::Which::Error(_) => RED,
                 },
@@ -462,12 +472,14 @@ async fn poll(
 
         svg.set(Some(svg_str));
 
-        Timer::after(Duration::from_millis(3000)).await;
+        if !finished {
+            Timer::after(Duration::from_millis(3000)).await;
+        }
 
-        Ok(())
+        Ok(finished)
     };
 
-    loop {
-        update_graph().await?;
-    }
+    while !update_graph().await? {}
+
+    Ok(())
 }
