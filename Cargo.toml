@@ -11,7 +11,7 @@ futures = "0.3"
 quirky_binder_capnp = { git = "https://github.com/arnodb/quirky_binder.git" }
 regex = "1"
 smol = "2"
-teleop = "0.3"
+teleop = { git = "https://github.com/arnodb/teleop.git", features = ["inotify"] }
 
 [features]
 default = ["desktop"]

@@ -7,7 +7,7 @@ use quirky_binder_capnp::quirky_binder_capnp;
 use regex::Regex;
 use smol::{process::Command, Timer};
 use teleop::{
-    attach::unix_socket::connect,
+    attach::{attacher::DefaultAttacher, connect},
     operate::capnp::{client_connection, teleop_capnp::teleop::Client},
 };
 
@@ -181,7 +181,7 @@ pub fn Teleop(pid: u32) -> Element {
     };
 
     use_future(move || async move {
-        let stream = connect(pid).await?;
+        let stream = connect::<DefaultAttacher>(pid).await?;
 
         rpc_state.set(RpcState::Connected);
 
